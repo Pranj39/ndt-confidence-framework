@@ -1,5 +1,7 @@
 """Unit tests for Component 02 twin generation."""
 
+from dataclasses import asdict
+import json
 from pathlib import Path
 
 import pytest
@@ -199,9 +201,9 @@ def test_builds_batfish_acl_rules(tmp_path: Path) -> None:
     r1_config = (snapshot_path / "configs" / "R1.cfg").read_text(encoding="utf-8")
 
     assert "ip access-list extended BLOCK_STUDENT_TO_EXAM" in r1_config
-    assert "permit tcp 10.0.1.0 0.0.0.255 10.0.2.0 0.0.0.255 eq 443" in r1_config
-    assert "deny ip 10.0.1.0 0.0.0.255 10.0.2.0 0.0.0.255" in r1_config
-    assert "permit icmp any 10.0.2.0 0.0.0.255" in r1_config
+    assert " permit tcp 10.0.1.0 0.0.0.255 10.0.2.0 0.0.0.255 eq 443" in r1_config.splitlines()
+    assert " deny ip 10.0.1.0 0.0.0.255 10.0.2.0 0.0.0.255" in r1_config.splitlines()
+    assert " permit icmp any 10.0.2.0 0.0.0.255" in r1_config.splitlines()
     assert "ip access-group BLOCK_STUDENT_TO_EXAM in" in r1_config
     assert "ip access-group BLOCK_STUDENT_TO_EXAM out" in r1_config
 
@@ -227,3 +229,108 @@ def test_rejects_duplicate_acl_names_on_node() -> None:
 def test_rejects_acl_port_for_non_transport_protocol() -> None:
     with pytest.raises(ValueError, match="only for TCP and UDP"):
         ACLRule(action="permit", protocol="icmp", source="any", destination="any", port=80)
+
+
+def test_model_validate_json_constructs_nested_models() -> None:
+    evidence = NetworkEvidence(
+        name="json-lab",
+        nodes=[
+            Node(
+                name="R1",
+                kind="router",
+                interfaces=[
+                    Interface("eth1", "10.0.1.1/24", applied_ingress_acl="FILTER")
+                ],
+                static_routes=[StaticRoute("10.0.2.0/24", "10.0.1.2")],
+                ospf=OSPFConfig(
+                    "10.255.0.1",
+                    networks=[OSPFNetwork("10.0.1.0/24", "0.0.0.0")],
+                    passive_interfaces=["eth1"],
+                ),
+                acls=[ACL("FILTER", [ACLRule("permit", "any", "any")])],
+            ),
+            Node("H1", "host", interfaces=[Interface("eth1", "10.0.1.2/24")]),
+        ],
+        links=[Link("R1", "eth1", "H1", "eth1")],
+    )
+
+    parsed = NetworkEvidence.model_validate_json(json.dumps(asdict(evidence)))
+
+    assert parsed == evidence
+    assert isinstance(parsed.nodes[0], Node)
+    assert isinstance(parsed.nodes[0].interfaces[0], Interface)
+    assert isinstance(parsed.nodes[0].acls[0].rules[0], ACLRule)
+    assert isinstance(parsed.links[0], Link)
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({}, "name is required"),
+        ({"name": "lab", "extra": 1}, "unknown fields"),
+        ({"name": "lab", "nodes": None}, "must be a JSON array"),
+        ({"name": "lab", "nodes": [{}]}, "name is required"),
+        ({"name": "lab", "nodes": [{"name": "R1", "kind": "invalid"}]}, "kind must match"),
+        (
+            {
+                "name": "lab",
+                "nodes": [
+                    {
+                        "name": "R1",
+                        "kind": "router",
+                        "interfaces": [{"name": "eth1", "enabled": 1}],
+                    }
+                ],
+            },
+            "enabled must match",
+        ),
+        (
+            {
+                "name": "lab",
+                "nodes": [
+                    {
+                        "name": "R1",
+                        "kind": "router",
+                        "ospf": {
+                            "router_id": "10.255.0.1",
+                            "networks": [{"prefix": "10.0.1.0/24", "area": True}],
+                        },
+                    }
+                ],
+            },
+            "area must match",
+        ),
+        (
+            {
+                "name": "lab",
+                "nodes": [
+                    {
+                        "name": "H1",
+                        "kind": "host",
+                        "interfaces": [{"name": "eth1", "ip_address": "invalid"}],
+                    }
+                ],
+            },
+            "valid IPv4 CIDR",
+        ),
+        (
+            {
+                "name": "lab",
+                "links": [
+                    {
+                        "source_node": "missing",
+                        "source_iface": "eth1",
+                        "target_node": "also-missing",
+                        "target_iface": "eth1",
+                    }
+                ],
+            },
+            "unknown node",
+        ),
+    ],
+)
+def test_model_validate_json_rejects_invalid_evidence(
+    payload: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        NetworkEvidence.model_validate_json(json.dumps(payload))

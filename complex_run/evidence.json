@@ -1,0 +1,201 @@
+{
+  "name": "thapathali-campus-core",
+  "nodes": [
+    {
+      "name": "R1-Core-Admin",
+      "kind": "router",
+      "interfaces": [
+        {
+          "name": "GigabitEthernet0/0",
+          "ip_address": "10.0.12.1/24",
+          "applied_ingress_acl": "SECURITY_POLICY_CORE"
+        },
+        {
+          "name": "GigabitEthernet0/1",
+          "ip_address": "10.0.20.1/24"
+        },
+        {
+          "name": "GigabitEthernet0/2",
+          "ip_address": "10.0.30.1/24"
+        },
+        {
+          "name": "Loopback0",
+          "ip_address": "10.255.0.1/32"
+        }
+      ],
+      "ospf": {
+        "router_id": "10.255.0.1",
+        "networks": [
+          {"prefix": "10.0.12.0/24", "area": 0},
+          {"prefix": "10.0.20.0/24", "area": 0},
+          {"prefix": "10.0.30.0/24", "area": 0},
+          {"prefix": "10.255.0.1/32", "area": 0}
+        ],
+        "passive_interfaces": ["GigabitEthernet0/1", "GigabitEthernet0/2", "Loopback0"]
+      },
+      "acls": [
+        {
+          "name": "SECURITY_POLICY_CORE",
+          "rules": [
+            {
+              "action": "deny",
+              "protocol": "ip",
+              "source": "10.0.10.0/24",
+              "destination": "10.0.20.10/32"
+            },
+            {
+              "action": "permit",
+              "protocol": "ip",
+              "source": "10.0.40.0/24",
+              "destination": "10.0.20.10/32"
+            },
+            {
+              "action": "permit",
+              "protocol": "ip",
+              "source": "any",
+              "destination": "10.0.30.10/32"
+            },
+            {
+              "action": "permit",
+              "protocol": "ip",
+              "source": "any",
+              "destination": "any"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "R2-Core-Dept",
+      "kind": "router",
+      "interfaces": [
+        {
+          "name": "GigabitEthernet0/0",
+          "ip_address": "10.0.12.2/24"
+        },
+        {
+          "name": "GigabitEthernet0/1",
+          "ip_address": "10.0.10.1/24"
+        },
+        {
+          "name": "GigabitEthernet0/2",
+          "ip_address": "10.0.40.1/24"
+        },
+        {
+          "name": "Loopback0",
+          "ip_address": "10.255.0.2/32"
+        }
+      ],
+      "ospf": {
+        "router_id": "10.255.0.2",
+        "networks": [
+          {"prefix": "10.0.12.0/24", "area": 0},
+          {"prefix": "10.0.10.0/24", "area": 0},
+          {"prefix": "10.0.40.0/24", "area": 0},
+          {"prefix": "10.255.0.2/32", "area": 0}
+        ],
+        "passive_interfaces": ["GigabitEthernet0/1", "GigabitEthernet0/2", "Loopback0"]
+      }
+    },
+    {
+      "name": "SW1-Admin",
+      "kind": "switch",
+      "interfaces": [
+        {"name": "GigabitEthernet0/1"},
+        {"name": "GigabitEthernet0/2"},
+        {"name": "GigabitEthernet0/3"},
+        {"name": "GigabitEthernet0/4"}
+      ]
+    },
+    {
+      "name": "SW2-Dept",
+      "kind": "switch",
+      "interfaces": [
+        {"name": "GigabitEthernet0/1"},
+        {"name": "GigabitEthernet0/2"},
+        {"name": "GigabitEthernet0/3"},
+        {"name": "GigabitEthernet0/4"}
+      ]
+    },
+    {
+      "name": "Exam-DB-Server",
+      "kind": "host",
+      "interfaces": [{"name": "eth1", "ip_address": "10.0.20.10/24"}],
+      "static_routes": [{"prefix": "0.0.0.0/0", "next_hop": "10.0.20.1"}]
+    },
+    {
+      "name": "EMIS-Portal",
+      "kind": "host",
+      "interfaces": [{"name": "eth1", "ip_address": "10.0.30.10/24"}],
+      "static_routes": [{"prefix": "0.0.0.0/0", "next_hop": "10.0.30.1"}]
+    },
+    {
+      "name": "Student-Lab-PC",
+      "kind": "host",
+      "interfaces": [{"name": "eth1", "ip_address": "10.0.10.100/24"}],
+      "static_routes": [{"prefix": "0.0.0.0/0", "next_hop": "10.0.10.1"}]
+    },
+    {
+      "name": "Faculty-PC",
+      "kind": "host",
+      "interfaces": [{"name": "eth1", "ip_address": "10.0.40.50/24"}],
+      "static_routes": [{"prefix": "0.0.0.0/0", "next_hop": "10.0.40.1"}]
+    }
+  ],
+  "links": [
+    {
+      "source_node": "R1-Core-Admin",
+      "source_iface": "GigabitEthernet0/0",
+      "target_node": "R2-Core-Dept",
+      "target_iface": "GigabitEthernet0/0"
+    },
+    {
+      "source_node": "R1-Core-Admin",
+      "source_iface": "GigabitEthernet0/1",
+      "target_node": "SW1-Admin",
+      "target_iface": "GigabitEthernet0/1"
+    },
+    {
+      "source_node": "R1-Core-Admin",
+      "source_iface": "GigabitEthernet0/2",
+      "target_node": "SW1-Admin",
+      "target_iface": "GigabitEthernet0/2"
+    },
+    {
+      "source_node": "SW1-Admin",
+      "source_iface": "GigabitEthernet0/3",
+      "target_node": "Exam-DB-Server",
+      "target_iface": "eth1"
+    },
+    {
+      "source_node": "SW1-Admin",
+      "source_iface": "GigabitEthernet0/4",
+      "target_node": "EMIS-Portal",
+      "target_iface": "eth1"
+    },
+    {
+      "source_node": "R2-Core-Dept",
+      "source_iface": "GigabitEthernet0/1",
+      "target_node": "SW2-Dept",
+      "target_iface": "GigabitEthernet0/1"
+    },
+    {
+      "source_node": "R2-Core-Dept",
+      "source_iface": "GigabitEthernet0/2",
+      "target_node": "SW2-Dept",
+      "target_iface": "GigabitEthernet0/2"
+    },
+    {
+      "source_node": "SW2-Dept",
+      "source_iface": "GigabitEthernet0/3",
+      "target_node": "Student-Lab-PC",
+      "target_iface": "eth1"
+    },
+    {
+      "source_node": "SW2-Dept",
+      "source_iface": "GigabitEthernet0/4",
+      "target_node": "Faculty-PC",
+      "target_iface": "eth1"
+    }
+  ]
+}

@@ -4,7 +4,7 @@ hostname {{ name }}
 {% for acl in acls %}
 ip access-list extended {{ acl.name }}
 {% for rule in acl.rules %}
- {{ rule.action }} {{ rule.protocol }} {{ rule.source.value }}{% if rule.source.wildcard %} {{ rule.source.wildcard }}{% endif %} {{ rule.destination.value }}{% if rule.destination.wildcard %} {{ rule.destination.wildcard }}{% endif %}{% if rule.port is not none %} eq {{ rule.port }}{% endif %}
+ {{ rule.action }} {{ rule.protocol }} {{ rule.source.value }}{% if rule.source.wildcard %} {{ rule.source.wildcard }}{% endif %} {{ rule.destination.value }}{% if rule.destination.wildcard %} {{ rule.destination.wildcard }}{% endif %}{% if rule.port is not none %} eq {{ rule.port }}{% endif +%}
 {% endfor %}
 !
 {% endfor %}

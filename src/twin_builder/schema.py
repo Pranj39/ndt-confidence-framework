@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields, is_dataclass
 from ipaddress import (
     IPv4Address,
     IPv4Interface,
@@ -11,8 +11,10 @@ from ipaddress import (
     ip_interface,
     ip_network,
 )
+import json
 import re
-from typing import Literal, get_args
+from types import UnionType
+from typing import Literal, TypeVar, get_args, get_origin, get_type_hints
 
 
 NodeKind = Literal["router", "switch", "host"]
@@ -251,6 +253,15 @@ class NetworkEvidence:
     nodes: list[Node] = field(default_factory=list)
     links: list[Link] = field(default_factory=list)
 
+    @classmethod
+    def model_validate_json(cls, json_data: str | bytes | bytearray) -> NetworkEvidence:
+        """Parse JSON into nested dataclasses, rejecting invalid or unknown fields.
+
+        This provides the JSON-loading API without requiring Pydantic. Existing
+        dataclass constructors perform IPv4, ACL, OSPF, and graph validation.
+        """
+        return _model_from_json(cls, json.loads(json_data), cls.__name__)
+
     def __post_init__(self) -> None:
         _validate_name(self.name, "Evidence name")
         node_names = [node.name for node in self.nodes]
@@ -288,3 +299,58 @@ class NetworkEvidence:
     def find_node(self, name: str) -> Node | None:
         """Return a node by name, or ``None`` when it is absent."""
         return next((node for node in self.nodes if node.name == name), None)
+
+
+_Model = TypeVar("_Model")
+
+
+def _model_from_json(model_type: type[_Model], value: object, path: str) -> _Model:
+    """Construct a dataclass only after validating its JSON field types."""
+    if not isinstance(value, dict):
+        raise ValueError(f"{path} must be a JSON object")
+    if not is_dataclass(model_type):
+        raise TypeError(f"Unsupported JSON model: {model_type}")
+    model_fields = {item.name: item for item in fields(model_type)}
+    unknown_fields = value.keys() - model_fields.keys()
+    if unknown_fields:
+        raise ValueError(f"{path} has unknown fields: {sorted(unknown_fields)}")
+    annotations = get_type_hints(model_type)
+    arguments: dict[str, object] = {}
+    for name, item in model_fields.items():
+        field_path = f"{path}.{name}"
+        if name in value:
+            arguments[name] = _json_field_value(value[name], annotations[name], field_path)
+        elif item.default is MISSING and item.default_factory is MISSING:
+            raise ValueError(f"{field_path} is required")
+    try:
+        return model_type(**arguments)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{path}: {error}") from error
+
+
+def _json_field_value(value: object, annotation: object, path: str) -> object:
+    origin = get_origin(annotation)
+    arguments = get_args(annotation)
+    if origin is UnionType:
+        if value is None and type(None) in arguments:
+            return None
+        candidates = [item for item in arguments if item is not type(None)]
+        if len(candidates) == 1:
+            return _json_field_value(value, candidates[0], path)
+        if type(value) in candidates:
+            return value
+    elif origin is list:
+        if not isinstance(value, list):
+            raise ValueError(f"{path} must be a JSON array")
+        return [
+            _json_field_value(item, arguments[0], f"{path}[{index}]")
+            for index, item in enumerate(value)
+        ]
+    elif origin is Literal:
+        if any(type(value) is type(item) and value == item for item in arguments):
+            return value
+    elif isinstance(annotation, type) and is_dataclass(annotation):
+        return _model_from_json(annotation, value, path)
+    elif annotation in (str, int, bool) and type(value) is annotation:
+        return value
+    raise ValueError(f"{path} must match {annotation}")

@@ -21,3 +21,5 @@ out/
 batfish_snapshot/
 containerlab/
 *.clab.yml
+
+AGENTS.md

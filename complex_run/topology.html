@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Network Digital Twin - Topology</title>
+  <style>
+    body { margin: 0; font: 16px system-ui, sans-serif; color: #17212b; }
+    header { padding: 16px 24px; background: #f3f6f9; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    p { margin: 6px 0; }
+    #network { height: 75vh; min-height: 360px; border-top: 1px solid #ccd5de; }
+    #status { color: #8a3200; }
+    .vis-tooltip pre { margin: 0; white-space: pre-wrap; max-width: 420px; }
+  </style>
+  <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1 id="heading">Network topology</h1>
+    <p>Red box: router | Teal diamond: switch | Yellow circle: host</p>
+    <p>Drag nodes, scroll to zoom, and hover for interface and ACL details.</p>
+    <p>Evidence view only. ACL enforcement is currently modeled in Batfish, not Containerlab.</p>
+    <p id="status" role="status">Loading map. Internet access is required for Vis.js.</p>
+  </header>
+  <div id="network" aria-label="Interactive network topology"></div>
+  <script id="topology-data" type="application/json">{"name": "thapathali-campus-core", "nodes": [{"id": "R1-Core-Admin", "label": "R1-Core-Admin", "title": "R1-Core-Admin (router)\nGigabitEthernet0/0: 10.0.12.1/24 (enabled)\n  Ingress ACL: SECURITY_POLICY_CORE\nGigabitEthernet0/1: 10.0.20.1/24 (enabled)\nGigabitEthernet0/2: 10.0.30.1/24 (enabled)\nLoopback0: 10.255.0.1/32 (enabled)", "color": "#ff6b6b", "shape": "box"}, {"id": "R2-Core-Dept", "label": "R2-Core-Dept", "title": "R2-Core-Dept (router)\nGigabitEthernet0/0: 10.0.12.2/24 (enabled)\nGigabitEthernet0/1: 10.0.10.1/24 (enabled)\nGigabitEthernet0/2: 10.0.40.1/24 (enabled)\nLoopback0: 10.255.0.2/32 (enabled)", "color": "#ff6b6b", "shape": "box"}, {"id": "SW1-Admin", "label": "SW1-Admin", "title": "SW1-Admin (switch)\nGigabitEthernet0/1: No IP address (enabled)\nGigabitEthernet0/2: No IP address (enabled)\nGigabitEthernet0/3: No IP address (enabled)\nGigabitEthernet0/4: No IP address (enabled)", "color": "#4ecdc4", "shape": "diamond"}, {"id": "SW2-Dept", "label": "SW2-Dept", "title": "SW2-Dept (switch)\nGigabitEthernet0/1: No IP address (enabled)\nGigabitEthernet0/2: No IP address (enabled)\nGigabitEthernet0/3: No IP address (enabled)\nGigabitEthernet0/4: No IP address (enabled)", "color": "#4ecdc4", "shape": "diamond"}, {"id": "Exam-DB-Server", "label": "Exam-DB-Server", "title": "Exam-DB-Server (host)\neth1: 10.0.20.10/24 (enabled)", "color": "#ffe66d", "shape": "dot"}, {"id": "EMIS-Portal", "label": "EMIS-Portal", "title": "EMIS-Portal (host)\neth1: 10.0.30.10/24 (enabled)", "color": "#ffe66d", "shape": "dot"}, {"id": "Student-Lab-PC", "label": "Student-Lab-PC", "title": "Student-Lab-PC (host)\neth1: 10.0.10.100/24 (enabled)", "color": "#ffe66d", "shape": "dot"}, {"id": "Faculty-PC", "label": "Faculty-PC", "title": "Faculty-PC (host)\neth1: 10.0.40.50/24 (enabled)", "color": "#ffe66d", "shape": "dot"}], "edges": [{"id": 0, "from": "R1-Core-Admin", "to": "R2-Core-Dept", "label": "GigabitEthernet0/0 \u003c-\u003e GigabitEthernet0/0", "title": "R1-Core-Admin:GigabitEthernet0/0 \u003c-\u003e R2-Core-Dept:GigabitEthernet0/0"}, {"id": 1, "from": "R1-Core-Admin", "to": "SW1-Admin", "label": "GigabitEthernet0/1 \u003c-\u003e GigabitEthernet0/1", "title": "R1-Core-Admin:GigabitEthernet0/1 \u003c-\u003e SW1-Admin:GigabitEthernet0/1"}, {"id": 2, "from": "R1-Core-Admin", "to": "SW1-Admin", "label": "GigabitEthernet0/2 \u003c-\u003e GigabitEthernet0/2", "title": "R1-Core-Admin:GigabitEthernet0/2 \u003c-\u003e SW1-Admin:GigabitEthernet0/2"}, {"id": 3, "from": "SW1-Admin", "to": "Exam-DB-Server", "label": "GigabitEthernet0/3 \u003c-\u003e eth1", "title": "SW1-Admin:GigabitEthernet0/3 \u003c-\u003e Exam-DB-Server:eth1"}, {"id": 4, "from": "SW1-Admin", "to": "EMIS-Portal", "label": "GigabitEthernet0/4 \u003c-\u003e eth1", "title": "SW1-Admin:GigabitEthernet0/4 \u003c-\u003e EMIS-Portal:eth1"}, {"id": 5, "from": "R2-Core-Dept", "to": "SW2-Dept", "label": "GigabitEthernet0/1 \u003c-\u003e GigabitEthernet0/1", "title": "R2-Core-Dept:GigabitEthernet0/1 \u003c-\u003e SW2-Dept:GigabitEthernet0/1"}, {"id": 6, "from": "R2-Core-Dept", "to": "SW2-Dept", "label": "GigabitEthernet0/2 \u003c-\u003e GigabitEthernet0/2", "title": "R2-Core-Dept:GigabitEthernet0/2 \u003c-\u003e SW2-Dept:GigabitEthernet0/2"}, {"id": 7, "from": "SW2-Dept", "to": "Student-Lab-PC", "label": "GigabitEthernet0/3 \u003c-\u003e eth1", "title": "SW2-Dept:GigabitEthernet0/3 \u003c-\u003e Student-Lab-PC:eth1"}, {"id": 8, "from": "SW2-Dept", "to": "Faculty-PC", "label": "GigabitEthernet0/4 \u003c-\u003e eth1", "title": "SW2-Dept:GigabitEthernet0/4 \u003c-\u003e Faculty-PC:eth1"}]}</script>
+  <script>
+    const data = JSON.parse(document.getElementById("topology-data").textContent);
+    document.getElementById("heading").textContent = data.name + " - Topology";
+    const status = document.getElementById("status");
+    if (typeof vis === "undefined") {
+      status.textContent = "Map unavailable: Vis.js could not load from the CDN. " +
+        "Check your internet connection and reload.";
+    } else {
+      const nodes = data.nodes.map(node => {
+        const title = document.createElement("pre");
+        title.textContent = node.title;
+        return {...node, title};
+      });
+      const options = {
+        physics: {enabled: true, stabilization: {iterations: 150}},
+        interaction: {dragNodes: true, dragView: true, zoomView: true, hover: true},
+        nodes: {size: 25, font: {size: 16}, borderWidth: 2},
+        edges: {font: {size: 12, align: "middle"}, smooth: {type: "dynamic"}}
+      };
+      const network = new vis.Network(
+        document.getElementById("network"),
+        {nodes: new vis.DataSet(nodes), edges: new vis.DataSet(data.edges)},
+        options
+      );
+      status.textContent = data.nodes.length + " nodes | " + data.edges.length + " links";
+    }
+  </script>
+</body>
+</html>

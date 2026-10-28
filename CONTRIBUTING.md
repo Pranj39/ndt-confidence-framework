@@ -1,4 +1,4 @@
-# AGENTS.md
+# CONTRIBUTING.md
 
 Research prototype for a confidence-aware network digital twin (IOE Thapathali Campus case study).
 Pipeline: 01 evidence ingest → **02 twin builder (only implemented component)** → 03 intents → 04 partial observability → 05 confidence → 06 probes → 07 fault localizer → 08 report. Do not scaffold the missing components or add their dependencies unasked.
@@ -11,7 +11,8 @@ Pipeline: 01 evidence ingest → **02 twin builder (only implemented component)*
 - Tests (from repo root): `.venv/bin/pytest -q`
 - Single test: `.venv/bin/pytest tests/test_twin_builder.py::test_name -q`
 - There is no lint, format, typecheck, or CI config. Don't invent one.
-- `.venv/` is the working environment (Python 3.12). Dependencies are declared in `pyproject.toml` (`Jinja2`, `PyYAML`; dev extra `pytest`). `pybatfish` happens to be installed but is **not** a declared dependency — Component 02 only renders files and never talks to Batfish.
+- `.venv/` is the working environment (Python 3.12). Dependencies are declared in `pyproject.toml` (`Jinja2`, `PyYAML`; dev extra `pytest`; optional `verify` extra `pybatfish`). `pybatfish` is imported lazily inside `verifier.py` only; nothing else may import it at module level.
+- CLI (`src/twin_builder/cli.py`, script `twin-builder`): `compile <json> [-o OUT] [--visualize]`, `verify <snapshot_dir> [--src-ip --dst-ip [--node | --evidence JSON]] [--host --port --network]`, `graph <clab_yaml>` (runs `sudo containerlab graph -t ...` via an argument list, never `shell=True`). A bare `twin-builder <json>` is kept as an alias for `compile`.
 
 ## Architecture
 
@@ -23,6 +24,7 @@ Pipeline: 01 evidence ingest → **02 twin builder (only implemented component)*
   - `build_containerlab()` → `<out>/containerlab/<evidence.name>.clab.yml` plus `<out>/containerlab/clab-configs/<node>/{frr.conf,daemons}`, returns the topology path.
 - CIDR → dotted netmask/wildcard conversion happens in the context helpers; templates never receive `/24`. Keep conversion out of templates.
 - `prune_evidence()` returns a new validated `NetworkEvidence` with links/static routes removed (counterfactual hook for Component 07); it must not mutate the input.
+- `src/twin_builder/verifier.py` (`TwinVerifier`) talks only to a local Batfish service (default `localhost:9996`) about generated snapshots. Sessions open lazily; connection failures (`OSError`, which includes `requests.ConnectionError`) become `BatfishUnavailableError`, other query failures `VerificationError`. `test_trace` maps `DENIED_IN/OUT` → `DENIED`, `ACCEPTED/DELIVERED_TO_SUBNET/EXITS_NETWORK` → `ACCEPTED`, and passes other Batfish dispositions through. With `start_node=None`, `resolve_start_location()` picks the location from the evidence attached via `load_snapshot(..., evidence=...)`: host with that exact IP → router's own IP → longest-prefix router subnet as `@enter(Node[Iface])`. `compile` writes `<out>/evidence.json` so `verify` can find it.
 - `.gitignore` excludes generated `out/`, `batfish_snapshot/`, `containerlab/`, `*.clab.yml`; write artifacts to those locations or `tmp_path`, not into `src/`.
 
 ## Containerlab / FRR mapping quirks
@@ -36,7 +38,7 @@ Pipeline: 01 evidence ingest → **02 twin builder (only implemented component)*
 ## Testing quirks
 
 - Tests assert exact rendered CLI strings (e.g. `ip address 10.0.12.1 255.255.255.0`, `permit tcp 10.0.1.0 0.0.0.255 ... eq 443`) and parsed YAML, so template edits usually require test updates.
-- The suite needs only `pytest`, `PyYAML`, and `tmp_path`; no Batfish, Containerlab, or Docker. Keep it that way.
+- The suite needs only `pytest`, `PyYAML`, and `tmp_path`; no running Batfish, Containerlab, or Docker. Keep it that way. `tests/test_verifier.py` injects fake pybatfish sessions via `TwinVerifier(session_factory=..., header_factory=...)` and mocks `subprocess.run` for `graph`; one test uses real pybatfish against closed port 1 and is skipped when pybatfish is absent.
 - Add a test in `tests/test_twin_builder.py` for every schema, builder, or template change.
 
 ## Safety boundaries (proposal §11 — non-negotiable)

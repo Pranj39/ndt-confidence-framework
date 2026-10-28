@@ -1,0 +1,100 @@
+{
+  "name": "thapathali-lab",
+  "nodes": [
+    {
+      "name": "R1-Core",
+      "kind": "router",
+      "interfaces": [
+        {
+          "name": "GigabitEthernet0/0",
+          "ip_address": "10.0.10.1/24",
+          "applied_ingress_acl": "BLOCK_STUDENT_TO_EXAM"
+        },
+        {
+          "name": "GigabitEthernet0/1",
+          "ip_address": "10.0.20.1/24"
+        },
+        {
+          "name": "Loopback0",
+          "ip_address": "10.255.0.1/32"
+        }
+      ],
+      "ospf": {
+        "router_id": "10.255.0.1",
+        "networks": [
+          {"prefix": "10.0.10.0/24", "area": 0},
+          {"prefix": "10.0.20.0/24", "area": 0},
+          {"prefix": "10.255.0.1/32", "area": 0}
+        ],
+        "passive_interfaces": ["GigabitEthernet0/0", "GigabitEthernet0/1", "Loopback0"]
+      },
+      "acls": [
+        {
+          "name": "BLOCK_STUDENT_TO_EXAM",
+          "rules": [
+            {
+              "action": "deny",
+              "protocol": "ip",
+              "source": "10.0.10.0/24",
+              "destination": "10.0.20.10/32"
+            },
+            {
+              "action": "permit",
+              "protocol": "ip",
+              "source": "any",
+              "destination": "any"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SW1-Distribution",
+      "kind": "switch",
+      "interfaces": [
+        {"name": "GigabitEthernet0/1"},
+        {"name": "GigabitEthernet0/2"},
+        {"name": "GigabitEthernet0/3"},
+        {"name": "GigabitEthernet0/4"}
+      ]
+    },
+    {
+      "name": "Exam-Server",
+      "kind": "host",
+      "interfaces": [{"name": "eth1", "ip_address": "10.0.20.10/24"}],
+      "static_routes": [{"prefix": "0.0.0.0/0", "next_hop": "10.0.20.1"}]
+    },
+    {
+      "name": "Student-PC",
+      "kind": "host",
+      "interfaces": [{"name": "eth1", "ip_address": "10.0.10.100/24"}],
+      "static_routes": [{"prefix": "0.0.0.0/0", "next_hop": "10.0.10.1"}]
+    }
+  ],
+  "links": [
+    {
+      "source_node": "R1-Core",
+      "source_iface": "GigabitEthernet0/0",
+      "target_node": "SW1-Distribution",
+      "target_iface": "GigabitEthernet0/1"
+    },
+    {
+      "source_node": "R1-Core",
+      "source_iface": "GigabitEthernet0/1",
+      "target_node": "SW1-Distribution",
+      "target_iface": "GigabitEthernet0/2"
+    },
+    {
+      "source_node": "SW1-Distribution",
+      "source_iface": "GigabitEthernet0/3",
+      "target_node": "Exam-Server",
+      "target_iface": "eth1"
+    },
+    {
+      "source_node": "SW1-Distribution",
+      "source_iface": "GigabitEthernet0/4",
+      "target_node": "Student-PC",
+      "target_iface": "eth1"
+    }
+  ]
+}
