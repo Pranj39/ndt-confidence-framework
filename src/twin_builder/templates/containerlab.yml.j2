@@ -1,0 +1,29 @@
+name: {{ name | yaml_quote }}
+topology:
+  nodes:
+{% for node in nodes %}
+    {{ node.name | yaml_quote }}:
+      kind: {{ node.clab_kind }}
+{% if node.has_image %}
+      image: {{ node.image | yaml_quote }}
+{% endif %}
+{% if node.is_router %}
+      binds:
+        - {{ ("clab-configs/" ~ node.name ~ "/frr.conf:/etc/frr/frr.conf") | yaml_quote }}
+        - {{ ("clab-configs/" ~ node.name ~ "/daemons:/etc/frr/daemons") | yaml_quote }}
+{% endif %}
+{% if node.exec_commands %}
+      exec:
+{% for command in node.exec_commands %}
+        - {{ command | yaml_quote }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% if links %}
+  links:
+{% for link in links %}
+    - endpoints:
+        - {{ link.source | yaml_quote }}
+        - {{ link.target | yaml_quote }}
+{% endfor %}
+{% endif %}

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ndt-confidence-framework"
+version = "0.1.0"
+description = "Confidence-aware network digital twin for safe change validation and fault localization"
+requires-python = ">=3.10"
+dependencies = [
+    "Jinja2>=3.1",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+twin_builder = ["templates/*.j2"]
+
+[tool.pytest.ini_options]
+# Keep `src.<component>` imports working with a bare `pytest` invocation.
+pythonpath = ["."]
+testpaths = ["tests"]

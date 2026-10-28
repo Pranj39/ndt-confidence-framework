@@ -1,0 +1,30 @@
+frr version 8.5.2
+frr defaults traditional
+hostname {{ hostname }}
+!
+{% for interface in interfaces %}
+interface {{ interface.name }}
+{% if interface.ip_address %}
+ ip address {{ interface.ip_address }}
+{% endif %}
+{% if not interface.enabled %}
+ shutdown
+{% endif %}
+!
+{% endfor %}
+{% for route in static_routes %}
+ip route {{ route.prefix }} {{ route.next_hop }} {{ route.admin_distance }}
+{% endfor %}
+{% if ospf %}
+router ospf
+ ospf router-id {{ ospf.router_id }}
+{% for network in ospf.networks %}
+ network {{ network.prefix }} area {{ network.area }}
+{% endfor %}
+{% for interface_name in ospf.passive_interfaces %}
+ passive-interface {{ interface_name }}
+{% endfor %}
+!
+{% endif %}
+line vty
+!

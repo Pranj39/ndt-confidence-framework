@@ -1,0 +1,32 @@
+version 15.2
+hostname {{ name }}
+!
+{% for interface in interfaces %}
+interface {{ interface.name }}
+{% if interface.vlan_id is not none %}
+ switchport access vlan {{ interface.vlan_id }}
+{% endif %}
+{% if interface.address %}
+ ip address {{ interface.address }} {{ interface.netmask }}
+{% endif %}
+{% if interface.enabled %}
+ no shutdown
+{% else %}
+ shutdown
+{% endif %}
+!
+{% endfor %}
+{% for route in static_routes %}
+ip route {{ route.network }} {{ route.netmask }} {{ route.next_hop }} {{ route.admin_distance }}
+{% endfor %}
+{% if ospf %}
+router ospf 1
+ router-id {{ ospf.router_id }}
+{% for network in ospf.networks %}
+ network {{ network.network }} {{ network.wildcard }} area {{ network.area }}
+{% endfor %}
+{% for interface_name in ospf.passive_interfaces %}
+ passive-interface {{ interface_name }}
+{% endfor %}
+!
+{% endif %}
