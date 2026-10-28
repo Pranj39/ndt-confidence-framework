@@ -5,7 +5,7 @@
 > Tribhuvan University, Institute of Engineering (IOE), Thapathali Campus
 
 - **Principal Investigator:** Er. Kobid Karkee  
-- **Student Co-Investigators:** Plan Ghimire, Pranjal Shrestha, Chitra Raj Joshi  
+- **Student Co-Investigators:** Plan Ghimire, Pranjal Shrestha
 - **Documentation:** [docs/proposal.md](docs/proposal.md) | [docs/slides.md](docs/slides.md) | [examples/README.md](examples/README.md)
 
 ---
