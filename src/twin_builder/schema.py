@@ -12,7 +12,7 @@ from ipaddress import (
     ip_network,
 )
 import re
-from typing import Literal
+from typing import Literal, get_args
 
 
 NodeKind = Literal["router", "switch", "host"]
@@ -51,6 +51,8 @@ class Interface:
     ip_address: str | None = None
     vlan_id: int | None = None
     enabled: bool = True
+    applied_ingress_acl: str | None = None
+    applied_egress_acl: str | None = None
 
     def __post_init__(self) -> None:
         _validate_interface_name(self.name, "Interface name")
@@ -70,6 +72,9 @@ class Interface:
                 raise ValueError("VLAN ID must be between 1 and 4094")
         if not isinstance(self.enabled, bool):
             raise TypeError("Interface enabled must be a bool")
+        for acl_name in (self.applied_ingress_acl, self.applied_egress_acl):
+            if acl_name is not None:
+                _validate_name(acl_name, "Applied ACL name")
 
 
 @dataclass(slots=True)
@@ -94,6 +99,44 @@ class StaticRoute:
             raise TypeError("Administrative distance must be an integer")
         if not 1 <= self.admin_distance <= 255:
             raise ValueError("Administrative distance must be between 1 and 255")
+
+
+@dataclass(slots=True)
+class ACLRule:
+    """A basic IPv4 extended access-control-list rule."""
+
+    action: Literal["permit", "deny"]
+    source: str
+    destination: str
+    protocol: Literal["ip", "tcp", "udp", "icmp"] = "ip"
+    port: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.action not in get_args(Literal["permit", "deny"]):
+            raise ValueError(f"Unsupported ACL action: {self.action!r}")
+        if self.protocol not in get_args(Literal["ip", "tcp", "udp", "icmp"]):
+            raise ValueError(f"Unsupported ACL protocol: {self.protocol!r}")
+        for label, address in (("Source", self.source), ("Destination", self.destination)):
+            if address != "any":
+                _ipv4_network(address, f"ACL {label.lower()}")
+        if self.port is not None:
+            if self.protocol not in ("tcp", "udp"):
+                raise ValueError("ACL port matching is supported only for TCP and UDP")
+            if isinstance(self.port, bool) or not isinstance(self.port, int):
+                raise TypeError("ACL port must be an integer")
+            if not 1 <= self.port <= 65535:
+                raise ValueError("ACL port must be between 1 and 65535")
+
+
+@dataclass(slots=True)
+class ACL:
+    """A named ordered list of ACL rules."""
+
+    name: str
+    rules: list[ACLRule] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        _validate_name(self.name, "ACL name")
 
 
 @dataclass(slots=True)
@@ -150,6 +193,7 @@ class Node:
     interfaces: list[Interface] = field(default_factory=list)
     static_routes: list[StaticRoute] = field(default_factory=list)
     ospf: OSPFConfig | None = None
+    acls: list[ACL] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         _validate_name(self.name, "Node name")
@@ -160,6 +204,20 @@ class Node:
             raise ValueError(f"Node {self.name!r} contains duplicate interface names")
         if self.ospf is not None and self.kind != "router":
             raise ValueError("OSPF configuration is supported only on router nodes")
+        acl_names = [acl.name for acl in self.acls]
+        if len(acl_names) != len(set(acl_names)):
+            raise ValueError(f"Node {self.name!r} contains duplicate ACL names")
+        unknown_acls = {
+            acl_name
+            for interface in self.interfaces
+            for acl_name in (
+                interface.applied_ingress_acl,
+                interface.applied_egress_acl,
+            )
+            if acl_name is not None and acl_name not in acl_names
+        }
+        if unknown_acls:
+            raise ValueError(f"Node {self.name!r} applies undefined ACLs: {sorted(unknown_acls)}")
         unknown_passive = set(
             self.ospf.passive_interfaces if self.ospf else ()
         ) - set(interface_names)

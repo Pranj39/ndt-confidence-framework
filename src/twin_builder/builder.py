@@ -117,6 +117,8 @@ class TwinBuilder:
                     else None,
                     "vlan_id": interface.vlan_id,
                     "enabled": interface.enabled,
+                    "applied_ingress_acl": interface.applied_ingress_acl,
+                    "applied_egress_acl": interface.applied_egress_acl,
                 }
             )
 
@@ -143,11 +145,38 @@ class TwinBuilder:
                 ],
                 "passive_interfaces": node.ospf.passive_interfaces,
             }
+        acls = [
+            {
+                "name": acl.name,
+                "rules": [
+                    {
+                        "action": rule.action,
+                        "protocol": rule.protocol,
+                        "source": TwinBuilder._acl_address_context(rule.source),
+                        "destination": TwinBuilder._acl_address_context(rule.destination),
+                        "port": rule.port,
+                    }
+                    for rule in acl.rules
+                ],
+            }
+            for acl in node.acls
+        ]
         return {
             "name": node.name,
             "interfaces": interfaces,
             "static_routes": static_routes,
             "ospf": ospf,
+            "acls": acls,
+        }
+
+    @staticmethod
+    def _acl_address_context(address: str) -> dict[str, str]:
+        if address == "any":
+            return {"value": "any", "wildcard": ""}
+        network = ip_network(address, strict=False)
+        return {
+            "value": str(network.network_address),
+            "wildcard": str(network.hostmask),
         }
 
     @staticmethod

@@ -1,10 +1,23 @@
 version 15.2
 hostname {{ name }}
 !
+{% for acl in acls %}
+ip access-list extended {{ acl.name }}
+{% for rule in acl.rules %}
+ {{ rule.action }} {{ rule.protocol }} {{ rule.source.value }}{% if rule.source.wildcard %} {{ rule.source.wildcard }}{% endif %} {{ rule.destination.value }}{% if rule.destination.wildcard %} {{ rule.destination.wildcard }}{% endif %}{% if rule.port is not none %} eq {{ rule.port }}{% endif %}
+{% endfor %}
+!
+{% endfor %}
 {% for interface in interfaces %}
 interface {{ interface.name }}
 {% if interface.vlan_id is not none %}
  switchport access vlan {{ interface.vlan_id }}
+{% endif %}
+{% if interface.applied_ingress_acl %}
+ ip access-group {{ interface.applied_ingress_acl }} in
+{% endif %}
+{% if interface.applied_egress_acl %}
+ ip access-group {{ interface.applied_egress_acl }} out
 {% endif %}
 {% if interface.address %}
  ip address {{ interface.address }} {{ interface.netmask }}

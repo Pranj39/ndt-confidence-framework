@@ -2,6 +2,8 @@
 
 from .builder import TwinBuilder
 from .schema import (
+    ACL,
+    ACLRule,
     Interface,
     Link,
     NetworkEvidence,
@@ -12,6 +14,8 @@ from .schema import (
 )
 
 __all__ = [
+    "ACL",
+    "ACLRule",
     "Interface",
     "Link",
     "NetworkEvidence",

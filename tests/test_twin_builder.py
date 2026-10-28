@@ -6,6 +6,8 @@ import pytest
 import yaml
 
 from src.twin_builder import (
+    ACL,
+    ACLRule,
     Interface,
     Link,
     NetworkEvidence,
@@ -147,3 +149,81 @@ def test_builds_bridge_switch_and_alpine_host_nodes(tmp_path: Path) -> None:
     assert "image" not in nodes["SW1"]
     assert nodes["H1"]["kind"] == "linux"
     assert nodes["H1"]["image"] == "alpine:latest"
+
+
+def test_builds_batfish_acl_rules(tmp_path: Path) -> None:
+    evidence = NetworkEvidence(
+        name="acl-lab",
+        nodes=[
+            Node(
+                name="R1",
+                kind="router",
+                interfaces=[
+                    Interface(
+                        name="GigabitEthernet0/0",
+                        ip_address="10.0.12.1/24",
+                        applied_ingress_acl="BLOCK_STUDENT_TO_EXAM",
+                        applied_egress_acl="BLOCK_STUDENT_TO_EXAM",
+                    )
+                ],
+                acls=[
+                    ACL(
+                        name="BLOCK_STUDENT_TO_EXAM",
+                        rules=[
+                            ACLRule(
+                                action="permit",
+                                protocol="tcp",
+                                source="10.0.1.0/24",
+                                destination="10.0.2.0/24",
+                                port=443,
+                            ),
+                            ACLRule(
+                                action="deny",
+                                source="10.0.1.0/24",
+                                destination="10.0.2.0/24",
+                            ),
+                            ACLRule(
+                                action="permit",
+                                protocol="icmp",
+                                source="any",
+                                destination="10.0.2.0/24",
+                            ),
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+
+    snapshot_path = Path(TwinBuilder().build_batfish_snapshot(evidence, tmp_path))
+    r1_config = (snapshot_path / "configs" / "R1.cfg").read_text(encoding="utf-8")
+
+    assert "ip access-list extended BLOCK_STUDENT_TO_EXAM" in r1_config
+    assert "permit tcp 10.0.1.0 0.0.0.255 10.0.2.0 0.0.0.255 eq 443" in r1_config
+    assert "deny ip 10.0.1.0 0.0.0.255 10.0.2.0 0.0.0.255" in r1_config
+    assert "permit icmp any 10.0.2.0 0.0.0.255" in r1_config
+    assert "ip access-group BLOCK_STUDENT_TO_EXAM in" in r1_config
+    assert "ip access-group BLOCK_STUDENT_TO_EXAM out" in r1_config
+
+
+def test_rejects_interface_applying_undefined_acl() -> None:
+    with pytest.raises(ValueError, match="undefined ACLs"):
+        Node(
+            name="R1",
+            kind="router",
+            interfaces=[Interface("GigabitEthernet0/0", applied_ingress_acl="MISSING")],
+        )
+
+
+def test_rejects_duplicate_acl_names_on_node() -> None:
+    with pytest.raises(ValueError, match="duplicate ACL names"):
+        Node(
+            name="R1",
+            kind="router",
+            acls=[ACL("EDGE_FILTER"), ACL("EDGE_FILTER")],
+        )
+
+
+def test_rejects_acl_port_for_non_transport_protocol() -> None:
+    with pytest.raises(ValueError, match="only for TCP and UDP"):
+        ACLRule(action="permit", protocol="icmp", source="any", destination="any", port=80)
