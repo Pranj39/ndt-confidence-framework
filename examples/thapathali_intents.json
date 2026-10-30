@@ -1,0 +1,76 @@
+{
+  "name": "thapathali-campus-core-intents",
+  "version": "1.0.0",
+  "description": "Baseline L2/L3 intents for the synthetic Thapathali campus core (thapathali_complex.json).",
+  "intents": [
+    {
+      "id": "INT-001",
+      "name": "Students isolated from exam database",
+      "type": "isolation",
+      "description": "No IP traffic from the student lab may reach the examination database.",
+      "severity": "CRITICAL",
+      "src": "group:student_lab",
+      "dst": "group:exam_db_server",
+      "protocol": "ip",
+      "expected": "DENIED",
+      "tags": [
+        "security",
+        "exam"
+      ],
+      "candidate_probe": {
+        "probe_type": "icmp",
+        "source_node": "Student-Lab-PC",
+        "destination_ip": "10.0.20.10"
+      }
+    },
+    {
+      "id": "INT-002",
+      "name": "Students reach EMIS portal over HTTPS",
+      "type": "service_access",
+      "description": "Student lab hosts must be able to open the EMIS portal over HTTPS.",
+      "severity": "HIGH",
+      "src": "group:student_lab",
+      "dst": "group:emis_portal",
+      "service": "web",
+      "protocol": "ip",
+      "expected": "ACCEPTED",
+      "tags": [
+        "service",
+        "emis"
+      ],
+      "candidate_probe": {
+        "probe_type": "tcp_syn",
+        "source_node": "Student-Lab-PC",
+        "destination_ip": "10.0.30.10",
+        "destination_port": 443
+      }
+    },
+    {
+      "id": "INT-003",
+      "name": "Faculty reach exam database",
+      "type": "reachability",
+      "description": "Faculty offices must keep IP reachability to the examination database.",
+      "severity": "HIGH",
+      "src": "group:faculty_lan",
+      "dst": "group:exam_db_server",
+      "protocol": "ip",
+      "expected": "ACCEPTED",
+      "tags": [
+        "reachability",
+        "exam"
+      ]
+    },
+    {
+      "id": "INT-004",
+      "name": "Campus core is loop-free",
+      "type": "loop_free",
+      "description": "The campus core data plane must contain no forwarding loops.",
+      "severity": "CRITICAL",
+      "protocol": "ip",
+      "expected": "LOOP_FREE",
+      "tags": [
+        "routing"
+      ]
+    }
+  ]
+}

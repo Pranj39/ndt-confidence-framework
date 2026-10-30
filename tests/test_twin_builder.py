@@ -75,6 +75,32 @@ def test_builds_batfish_snapshot_configs(
     assert "router-id 2.2.2.2" in r2_config
 
 
+def test_renders_interface_descriptions(
+    tmp_path: Path, two_router_evidence: NetworkEvidence
+) -> None:
+    interface = two_router_evidence.nodes[0].interfaces[0]
+    interface.description = "Uplink to R2"
+    builder = TwinBuilder()
+
+    batfish = Path(builder.build_batfish_snapshot(two_router_evidence, tmp_path))
+    builder.build_containerlab(two_router_evidence, tmp_path)
+
+    r1_config = (batfish / "configs" / "R1.cfg").read_text(encoding="utf-8")
+    assert f"interface {interface.name}\n description Uplink to R2\n" in r1_config
+    frr = (tmp_path / "containerlab" / "clab-configs" / "R1" / "frr.conf").read_text(
+        encoding="utf-8"
+    )
+    assert " description Uplink to R2\n" in frr
+    r2_config = (batfish / "configs" / "R2.cfg").read_text(encoding="utf-8")
+    assert "description" not in r2_config
+
+
+@pytest.mark.parametrize("description", ["", "   ", "x\nhostname evil", "tab\there", "x" * 201])
+def test_rejects_unsafe_interface_descriptions(description: str) -> None:
+    with pytest.raises(ValueError, match="description"):
+        Interface(name="Gi0/0", description=description)
+
+
 def test_builds_containerlab_topology_and_router_configs(
     tmp_path: Path, two_router_evidence: NetworkEvidence
 ) -> None:

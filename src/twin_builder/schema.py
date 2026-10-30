@@ -55,9 +55,22 @@ class Interface:
     enabled: bool = True
     applied_ingress_acl: str | None = None
     applied_egress_acl: str | None = None
+    description: str | None = None
 
     def __post_init__(self) -> None:
         _validate_interface_name(self.name, "Interface name")
+        if self.description is not None:
+            if not isinstance(self.description, str):
+                raise TypeError("Interface description must be a string")
+            # Descriptions are rendered into device configs, so a newline would inject commands.
+            if (
+                not self.description.strip()
+                or len(self.description) > 200
+                or any(ord(char) < 32 or ord(char) == 127 for char in self.description)
+            ):
+                raise ValueError(
+                    "Interface description must be 1-200 printable characters on one line"
+                )
         if self.ip_address is not None:
             try:
                 address = ip_interface(self.ip_address)

@@ -5,6 +5,9 @@ Subcommands::
     twin-builder compile <input_json> [-o OUTPUT] [--visualize]
     twin-builder verify <snapshot_dir> [--node NODE --src-ip SRC --dst-ip DST]
     twin-builder graph <clab_yaml_path>
+    twin-builder check-intents <snapshot_dir> <intents_file> [--evidence JSON]
+        [--groups JSON] [--json-out REPORT]
+    twin-builder add-intent --intents <intents_file> --evidence <json> [--groups JSON]
 
 For backward compatibility, ``twin-builder <input_json> ...`` is treated as
 ``compile``.
@@ -19,14 +22,44 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence
 
 from .builder import TwinBuilder
 from .schema import NetworkEvidence
 from .verifier import TwinVerifier, VerificationError
 from .visualizer import generate_interactive_map
 
-_COMMANDS = ("compile", "verify", "graph")
+# Mirror intent_library._twin: `src.twin_builder` pairs with `src.intent_library`.
+if __package__ and "." in __package__:
+    from ..intent_library import (
+        EndpointGroupRegistry,
+        IntentEvaluator,
+        IntentStatus,
+        IntentSuite,
+        SuiteEvaluationReport,
+        WizardAborted,
+        auto_discover_groups,
+        load_group_registry,
+        load_intent_suite,
+        run_add_intent_wizard,
+        save_intent_suite,
+    )
+else:
+    from intent_library import (  # type: ignore[no-redef]
+        EndpointGroupRegistry,
+        IntentEvaluator,
+        IntentStatus,
+        IntentSuite,
+        SuiteEvaluationReport,
+        WizardAborted,
+        auto_discover_groups,
+        load_group_registry,
+        load_intent_suite,
+        run_add_intent_wizard,
+        save_intent_suite,
+    )
+
+_COMMANDS = ("compile", "verify", "graph", "check-intents", "add-intent")
 EVIDENCE_FILENAME = "evidence.json"
 
 
@@ -98,7 +131,54 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     graph_parser.add_argument("clab_yaml_path", type=Path, help="Path to a .clab.yml topology")
     graph_parser.set_defaults(handler=_run_graph, parser=graph_parser)
+
+    check_parser = subparsers.add_parser(
+        "check-intents",
+        help="Evaluate an intent suite against a snapshot with Batfish",
+        description=(
+            "Compile intents into concrete flows, trace them in a local Batfish service, and "
+            "report verdicts, dependency cones, and verification coverage (Vq)."
+        ),
+    )
+    check_parser.add_argument(
+        "snapshot_dir", type=Path, help="Snapshot directory containing configs/"
+    )
+    check_parser.add_argument("intents_file", type=Path, help="Intent suite JSON file")
+    check_parser.add_argument(
+        "--evidence",
+        type=Path,
+        help=(
+            f"Evidence JSON (default: <snapshot_dir>/../{EVIDENCE_FILENAME} "
+            "written by 'compile')"
+        ),
+    )
+    check_parser.add_argument(
+        "--groups", type=Path, help="Endpoint group JSON (default: auto-discover from evidence)"
+    )
+    check_parser.add_argument("--json-out", type=Path, help="Also write the report as JSON")
+    _add_batfish_arguments(check_parser)
+    check_parser.set_defaults(handler=_run_check_intents, parser=check_parser)
+
+    add_parser = subparsers.add_parser(
+        "add-intent",
+        help="Interactively author a new intent and append it to a suite",
+        description="Interactive wizard that appends a new intent to an intent suite JSON file.",
+    )
+    add_parser.add_argument(
+        "--intents", type=Path, required=True, help="Intent suite JSON (created if missing)"
+    )
+    add_parser.add_argument(
+        "--evidence", type=Path, help="Evidence JSON used to auto-discover endpoint groups"
+    )
+    add_parser.add_argument("--groups", type=Path, help="Endpoint group JSON to choose from")
+    add_parser.set_defaults(handler=_run_add_intent, parser=add_parser)
     return parser
+
+
+def _add_batfish_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--network", default="campus_network", help="Batfish network name")
+    parser.add_argument("--host", default="localhost", help="Batfish host (default: localhost)")
+    parser.add_argument("--port", type=int, default=9996, help="Batfish port (default: 9996)")
 
 
 def _ip_address(value: str) -> str:
@@ -174,17 +254,188 @@ def _run_verify(arguments: argparse.Namespace, parser: argparse.ArgumentParser) 
 def _load_verify_evidence(
     arguments: argparse.Namespace, parser: argparse.ArgumentParser
 ) -> NetworkEvidence:
-    path: Path = arguments.evidence or arguments.snapshot_dir.parent / EVIDENCE_FILENAME
-    if arguments.evidence is None and not path.is_file():
-        parser.exit(
-            2,
-            f"{parser.prog}: error: --node was omitted and no evidence was found at {path}; "
-            "pass --evidence <json> or --node <name>\n",
-        )
+    return _load_snapshot_evidence(
+        arguments.evidence,
+        arguments.snapshot_dir,
+        parser,
+        "--node was omitted and no evidence was found at {path}; "
+        "pass --evidence <json> or --node <name>",
+    )
+
+
+def _load_snapshot_evidence(
+    explicit: Optional[Path],
+    snapshot_dir: Optional[Path],
+    parser: argparse.ArgumentParser,
+    missing_message: str,
+) -> NetworkEvidence:
+    """Load ``explicit`` evidence, else ``<snapshot_dir>/../evidence.json``; exit 2 on failure."""
+    if explicit is None:
+        path = (snapshot_dir or Path(".")).parent / EVIDENCE_FILENAME
+        if not path.is_file():
+            parser.exit(2, f"{parser.prog}: error: {missing_message.format(path=path)}\n")
+    else:
+        path = explicit
     try:
         return NetworkEvidence.model_validate_json(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, ValueError) as error:
         parser.exit(2, f"{parser.prog}: error: cannot load evidence: {error}\n")
+
+
+def _run_check_intents(arguments: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    evidence = _load_snapshot_evidence(
+        arguments.evidence,
+        arguments.snapshot_dir,
+        parser,
+        "no evidence was found at {path}; pass --evidence <json>",
+    )
+    try:
+        suite = load_intent_suite(arguments.intents_file)
+        registry = load_group_registry(arguments.groups) if arguments.groups else None
+    except (OSError, UnicodeError, ValueError) as error:
+        parser.exit(2, f"{parser.prog}: error: cannot load intents or groups: {error}\n")
+    if registry is None:
+        registry = auto_discover_groups(evidence)
+        print(f"Endpoint groups: {len(registry.groups)} auto-discovered from {evidence.name}")
+    else:
+        print(f"Endpoint groups: {len(registry.groups)} loaded from {arguments.groups}")
+    try:
+        verifier = TwinVerifier(host=arguments.host, port=arguments.port)
+    except ValueError as error:
+        parser.error(str(error))
+
+    try:
+        summary = verifier.load_snapshot(arguments.snapshot_dir, arguments.network, evidence)
+    except VerificationError as error:
+        print(f"{parser.prog}: error: {error}", file=sys.stderr)
+        return 1
+    _print_parse_summary(summary)
+    report = IntentEvaluator(verifier, evidence, registry).evaluate_suite(suite)
+    _print_intent_report(suite, report)
+    if arguments.json_out is not None:
+        try:
+            arguments.json_out.parent.mkdir(parents=True, exist_ok=True)
+            arguments.json_out.write_text(
+                report.model_dump_json(indent=2) + "\n", encoding="utf-8"
+            )
+        except OSError as error:
+            print(f"{parser.prog}: error: cannot write report: {error}", file=sys.stderr)
+            return 1
+        print(f"JSON report: {arguments.json_out}")
+    all_passed = report.passed_count == report.total_intents
+    return 0 if summary["ok"] and all_passed else 1
+
+
+def _print_intent_report(suite: IntentSuite, report: SuiteEvaluationReport) -> None:
+    print(f"\nIntent suite {suite.name} v{suite.version} ({report.total_intents} intents)")
+    headers = ("ID", "STATUS", "SEVERITY", "TYPE", "EXPECTED", "RESULT", "NAME")
+    expected = {intent.id: intent.expected for intent in suite.intents}
+    rows = [
+        (
+            result.intent_id,
+            result.status.value,
+            result.severity.value if result.severity else "-",
+            result.type.value if result.type else "-",
+            expected.get(result.intent_id, "-"),
+            result.disposition,
+            result.name,
+        )
+        for result in report.results
+    ]
+    widths = [
+        max(len(header), *(len(row[index]) for row in rows)) if rows else len(header)
+        for index, header in enumerate(headers)
+    ]
+    print("  " + "  ".join(header.ljust(width) for header, width in zip(headers, widths)))
+    print("  " + "  ".join("-" * width for width in widths))
+    for result, row in zip(report.results, rows):
+        print("  " + "  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip())
+        for outcome in result.checks:
+            check = outcome.check
+            if check.expected == "LOOP_FREE":
+                continue
+            port = "" if check.dst_port is None else f"/{check.dst_port}"
+            mark = "ok" if outcome.passed else ("ERROR" if outcome.error else "MISMATCH")
+            print(
+                f"      check {check.src_ip} -> {check.dst_ip} ({check.protocol}{port}) "
+                f"from {check.start_location}: {outcome.disposition} [{mark}]"
+            )
+            if outcome.hops:
+                dropped = (
+                    f" | dropped by {outcome.dropping_filter}" if outcome.dropping_filter else ""
+                )
+                print(f"            path: {' -> '.join(outcome.hops)}{dropped}")
+        if result.dependency_cone:
+            print(f"      cone: {', '.join(result.dependency_cone)}")
+        if result.status is not IntentStatus.PASSED:
+            print(f"      details: {result.details}")
+    print(
+        f"\nVerification coverage (Vq): {report.passed_count}/{report.total_intents} = "
+        f"{report.verification_coverage:.2f}  "
+        f"[passed {report.passed_count}, failed {report.failed_count}, "
+        f"error {report.error_count}]"
+    )
+
+
+def _run_add_intent(arguments: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    if arguments.evidence is None and arguments.groups is None:
+        parser.error("--evidence is required unless --groups is given")
+    evidence = (
+        _load_snapshot_evidence(arguments.evidence, None, parser, "")
+        if arguments.evidence is not None
+        else None
+    )
+    intents_path: Path = arguments.intents
+    try:
+        registry: EndpointGroupRegistry = (
+            load_group_registry(arguments.groups)
+            if arguments.groups is not None
+            else auto_discover_groups(evidence)
+        )
+        if intents_path.exists():
+            suite = load_intent_suite(intents_path)
+        else:
+            base_name = evidence.name if evidence is not None else intents_path.stem
+            suite = IntentSuite(name=f"{base_name}-intents", intents=[])
+    except (OSError, UnicodeError, ValueError) as error:
+        parser.exit(2, f"{parser.prog}: error: cannot load intents or groups: {error}\n")
+    source = arguments.groups or f"auto-discovered from {evidence.name}"
+    print(f"Adding an intent to {intents_path} (suite {suite.name}, {len(suite.intents)} intents)")
+    print(f"Groups: {source}")
+
+    try:
+        intent = run_add_intent_wizard(suite, registry)
+    except (WizardAborted, KeyboardInterrupt):
+        print(f"\nAborted; {intents_path} was not changed.", file=sys.stderr)
+        return 130
+    except ValueError as error:
+        print(f"{parser.prog}: error: {error}", file=sys.stderr)
+        return 1
+
+    updated = IntentSuite.model_validate(
+        {**suite.model_dump(), "intents": [*suite.model_dump()["intents"], intent.model_dump()]}
+    )
+    try:
+        save_intent_suite(updated, intents_path)
+    except OSError as error:
+        print(f"{parser.prog}: error: cannot save {intents_path}: {error}", file=sys.stderr)
+        return 1
+
+    target = "" if intent.src is None else f": {intent.src} -> {intent.dst}"
+    traffic = intent.service or (
+        f"{intent.protocol}/{intent.dst_port}" if intent.dst_port is not None else None
+    )
+    print(
+        f"\nAdded {intent.id} '{intent.name}' ({intent.type.value}, {intent.severity.value})"
+        f"{target}{f' [{traffic}]' if traffic else ''} expecting {intent.expected}"
+    )
+    print(f"Saved {intents_path} ({len(updated.intents)} intents)")
+    if arguments.groups is None:
+        print(
+            "Note: groups were auto-discovered; run check-intents without --groups (or with a "
+            "groups file whose group names or aliases include these names)."
+        )
+    return 0
 
 
 def _print_parse_summary(summary: dict[str, Any]) -> None:

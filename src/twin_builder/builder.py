@@ -111,6 +111,7 @@ class TwinBuilder:
             interfaces.append(
                 {
                     "name": interface.name,
+                    "description": interface.description,
                     "address": str(address.ip) if isinstance(address, IPv4Interface) else None,
                     "netmask": str(address.network.netmask)
                     if isinstance(address, IPv4Interface)
@@ -209,6 +210,7 @@ class TwinBuilder:
         interfaces = [
             {
                 "name": interface_names[interface.name],
+                "description": interface.description,
                 "ip_address": interface.ip_address,
                 "enabled": interface.enabled,
             }

@@ -38,8 +38,8 @@ The framework is organized into 8 modular components:
 ```
 
 - **01 Evidence Ingestor:** Parses heterogeneous configs and telemetry into a unified Network Evidence graph.
-- **02 Twin Builder (`src/twin_builder/` - Current Implementation):** Compiles evidence into Batfish snapshots, Containerlab topologies (FRRouting + Linux containers), and interactive visualizations.
-- **03 Intent Library:** Declarative policy checks for reachability, isolation, and routing invariants.
+- **02 Twin Builder (`src/twin_builder/` - implemented):** Compiles evidence into Batfish snapshots, Containerlab topologies (FRRouting + Linux containers), and interactive visualizations.
+- **03 Intent Library (`src/intent_library/` - implemented):** Declarative reachability, isolation, service-access, and loop-freedom intents over endpoint groups, verified against the twin with Batfish.
 - **04 Partial-Observability Generator:** Controlled injection of topological missingness and telemetry staleness.
 - **05 Confidence Engine:** Calibrates confidence scores for twin query answers under missing evidence.
 - **06 Probe Selector:** Information-theoretic selection of active probes under budget constraints.
@@ -126,6 +126,78 @@ twin-builder graph dist/containerlab/thapathali-lab.clab.yml
 ```
 
 Opens Containerlab's interactive browser UI displaying the active emulation topology.
+
+---
+
+## Component 03: Intent Library
+
+Intents are declarative L2/L3 properties over **endpoint groups** (proposal §5, §8.2, §8.5). Each
+intent has a type, an expected outcome, and a severity:
+
+| Type | Expected | Example |
+|---|---|---|
+| `isolation` | `DENIED` | Students must not reach the exam database |
+| `reachability` | `ACCEPTED` | Faculty must reach the exam database |
+| `service_access` | `ACCEPTED` | Students reach the EMIS portal over `web` (tcp/443) |
+| `loop_free` | `LOOP_FREE` | The data plane has no forwarding loops |
+
+Sources and destinations are `group:<name>` references, raw IPv4 addresses/CIDRs, or `any`
+(destination only). Services map to ports: `web`/`https` → tcp/443, `http` → tcp/80,
+`ssh` → tcp/22, `dns` → udp/53.
+
+**Endpoint groups** come from a curated file such as
+[examples/thapathali_groups.json](examples/thapathali_groups.json) or are auto-discovered
+from the evidence:
+- each host becomes `<hostname>`;
+- each interface description becomes `<description>`;
+- each VLAN becomes `vlan_<id>`;
+- any other router subnet becomes `net_<cidr>`.
+
+A curated group can list `aliases`, such as `students` with alias `student_lab`. An intent
+that references either name resolves to the same group. Aliases let one intent file work with
+both a curated groups file and auto-discovered groups. Names and aliases must be unique across
+the registry.
+
+**Isolation is strict.** An isolation intent passes only if every flow is `DENIED` by an
+ACL/filter. Traffic that is blackholed (`NO_ROUTE`, `NULL_ROUTED`, …) counts as FAILED, because
+the next routing change could silently restore reachability.
+
+### Check an intent suite
+
+```bash
+twin-builder compile examples/thapathali_complex.json -o dist
+twin-builder check-intents dist/batfish_snapshot examples/thapathali_intents.json \
+  --groups examples/thapathali_groups.json --json-out dist/intent_report.json
+```
+
+Each intent is expanded into the Cartesian product of its source and destination prefixes. Each
+flow starts where its source attaches to the twin (a host, or `@enter(Router[Interface])` for a
+subnet) and is traced in Batfish. `loop_free` intents use Batfish `detectLoops`. The report shows:
+- PASSED/FAILED/ERROR for each intent;
+- every expanded check with its path;
+- the ACL that dropped traffic, if any;
+- the **dependency cone** (nodes and interfaces each verdict relied on);
+- **verification coverage** `V_q` = passed / total.
+
+Omit `--groups` to use auto-discovered groups. The example suite uses auto-discovered names, and
+the curated file lists them as aliases, so it passes either way. The command exits with 1 if any
+intent is not PASSED.
+
+### Author a new intent interactively
+
+```bash
+twin-builder add-intent --intents examples/thapathali_intents.json \
+  --evidence dist/evidence.json --groups examples/thapathali_groups.json
+```
+
+The wizard lists the groups as `[1] students`, `[2] exam_db`, and so on. It then asks for:
+- the intent ID and name;
+- the type;
+- the source and destination groups;
+- the service or port;
+- the severity.
+
+It appends the validated intent to the suite and saves the file.
 
 ---
 

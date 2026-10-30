@@ -1,0 +1,27 @@
+{
+  "groups": [
+    {
+      "name": "students",
+      "description": "Student computer lab",
+      "aliases": ["student_lab"],
+      "subnets": ["10.0.10.0/24"]
+    },
+    {
+      "name": "exam_db",
+      "description": "Examination database server",
+      "aliases": ["exam_db_server"],
+      "hosts": ["10.0.20.10/32"]
+    },
+    {
+      "name": "emis_portal",
+      "description": "EMIS web portal",
+      "hosts": ["10.0.30.10/32"]
+    },
+    {
+      "name": "faculty",
+      "description": "Faculty office LAN",
+      "aliases": ["faculty_lan"],
+      "subnets": ["10.0.40.0/24"]
+    }
+  ]
+}

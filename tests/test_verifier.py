@@ -247,8 +247,13 @@ def test_trace_reports_acl_denial(snapshot_dir: Path) -> None:
         {
             "node": "r1-core",
             "steps": [
-                {"action": "RECEIVED", "type": None, "filter": None},
-                {"action": "DENIED", "type": "FilterStepDetail", "filter": "BLOCK_STUDENT_TO_EXAM"},
+                {"action": "RECEIVED", "type": None, "filter": None, "interface": None},
+                {
+                    "action": "DENIED",
+                    "type": "FilterStepDetail",
+                    "filter": "BLOCK_STUDENT_TO_EXAM",
+                    "interface": None,
+                },
             ],
         }
     ]
@@ -330,6 +335,47 @@ def test_real_pybatfish_unreachable_service(snapshot_dir: Path) -> None:
 def test_rejects_invalid_port(port: int) -> None:
     with pytest.raises(ValueError, match="port"):
         TwinVerifier(port=port)
+
+
+def test_trace_sends_protocol_and_port_constraints(snapshot_dir: Path) -> None:
+    session = FakeSession(_default_answers())
+    verifier = _verifier(session)
+    verifier.load_snapshot(snapshot_dir)
+
+    verifier.test_trace("R1-Core", "10.0.10.0/24", "10.0.20.10", protocol="tcp", dst_port=443)
+    assert session.calls[-1][1]["headers"] == {
+        "srcIps": "10.0.10.0/24",
+        "dstIps": "10.0.20.10",
+        "ipProtocols": ["TCP"],
+        "dstPorts": "443",
+    }
+    verifier.test_trace("R1-Core", "10.0.10.5", "10.0.20.10", protocol="ip")
+    assert session.calls[-1][1]["headers"] == {"srcIps": "10.0.10.5", "dstIps": "10.0.20.10"}
+
+    with pytest.raises(ValueError, match="dst_port requires protocol"):
+        verifier.test_trace("R1-Core", "10.0.10.5", "10.0.20.10", dst_port=22)
+    with pytest.raises(ValueError, match="Unsupported trace protocol"):
+        verifier.test_trace("R1-Core", "10.0.10.5", "10.0.20.10", protocol="gre")
+
+
+def test_detect_loops(snapshot_dir: Path) -> None:
+    answers = _default_answers()
+    answers["detectLoops"] = []
+    verifier = _verifier(FakeSession(answers))
+    verifier.load_snapshot(snapshot_dir)
+
+    assert verifier.detect_loops() == []
+
+    looping = _trace("LOOP", [("r1", [_step("FORWARDED")]), ("r2", [_step("FORWARDED")])])
+    answers["detectLoops"] = [{"Flow": "10.0.0.1->10.9.9.9", "Traces": [looping]}]
+    [loop] = verifier.detect_loops()
+    assert loop["flow"] == "10.0.0.1->10.9.9.9"
+    assert loop["nodes"] == ["r1", "r2"]
+    assert loop["traces"][0]["batfish_disposition"] == "LOOP"
+
+    answers["detectLoops"] = RuntimeError("boom")
+    with pytest.raises(VerificationError, match="failed to detect loops: boom"):
+        verifier.detect_loops()
 
 
 def _patch_cli_verifier(monkeypatch: pytest.MonkeyPatch, answers: dict[str, Any]) -> list[Any]:

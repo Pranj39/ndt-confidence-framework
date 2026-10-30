@@ -10,6 +10,9 @@ ip access-list extended {{ acl.name }}
 {% endfor %}
 {% for interface in interfaces %}
 interface {{ interface.name }}
+{% if interface.description %}
+ description {{ interface.description }}
+{% endif %}
 {% if interface.vlan_id is not none %}
  switchport access vlan {{ interface.vlan_id }}
 {% endif %}

@@ -24,6 +24,7 @@ _DENIED_DISPOSITIONS = frozenset({"DENIED_IN", "DENIED_OUT"})
 _ROUTE_COLUMNS = ("Node", "Network", "Next_Hop_IP", "Protocol")
 _UNQUOTED_SPECIFIER_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.:/-]*")
 UNKNOWN_SOURCE_MESSAGE = "Source IP does not belong to any known network in evidence."
+_TRACE_PROTOCOLS = frozenset({"tcp", "udp", "icmp"})
 
 
 class VerificationError(RuntimeError):
@@ -203,11 +204,16 @@ class TwinVerifier:
         start_node: str | None = None,
         src_ip: str | None = None,
         dst_ip: str | None = None,
+        protocol: str | None = None,
+        dst_port: int | None = None,
     ) -> dict[str, Any]:
         """Trace a flow and report disposition, hops, and ACL drops.
 
         When ``start_node`` is ``None`` the start location is auto-detected from
         ``src_ip`` with ``resolve_start_location`` and the loaded evidence.
+        ``src_ip``/``dst_ip`` may be addresses or CIDR prefixes. ``protocol``
+        (``tcp``/``udp``/``icmp``; ``ip`` or ``None`` means any) and ``dst_port``
+        further constrain the traced flow.
 
         ``disposition`` is ``ACCEPTED`` when every path is delivered, ``DENIED``
         when any path is dropped by a filter, otherwise Batfish's own value
@@ -219,11 +225,22 @@ class TwinVerifier:
             raise ValueError("dst_ip must not be empty")
         if start_node == "":
             raise ValueError("start_node must not be empty")
+        header_constraints: dict[str, Any] = {"srcIps": src_ip, "dstIps": dst_ip}
+        if protocol is not None and protocol.lower() != "ip":
+            if protocol.lower() not in _TRACE_PROTOCOLS:
+                raise ValueError(f"Unsupported trace protocol: {protocol!r}")
+            header_constraints["ipProtocols"] = [protocol.upper()]
+        if dst_port is not None:
+            if not 0 < dst_port < 65536:
+                raise ValueError(f"dst_port must be between 1 and 65535, got {dst_port}")
+            if protocol is None or protocol.lower() not in ("tcp", "udp"):
+                raise ValueError("dst_port requires protocol 'tcp' or 'udp'")
+            header_constraints["dstPorts"] = str(dst_port)
         session = self._require_snapshot()
         auto_detected = start_node is None
         location = self.resolve_start_location(src_ip) if start_node is None else start_node
         try:
-            headers = self._headers(srcIps=src_ip, dstIps=dst_ip)
+            headers = self._headers(**header_constraints)
             rows = _records(
                 session.q.traceroute(startLocation=location, headers=headers).answer().frame()
             )
@@ -261,6 +278,26 @@ class TwinVerifier:
             "dropped_by_acl": primary["dropped_by_acl"],
             "traces": traces,
         }
+
+    def detect_loops(self) -> list[dict[str, Any]]:
+        """Return forwarding loops found by Batfish's ``detectLoops`` question.
+
+        Each entry has the looping ``flow`` text, the ``nodes`` on the loop, and
+        the summarised ``traces``. An empty list means the data plane is loop-free.
+        """
+        session = self._require_snapshot()
+        try:
+            rows = _records(session.q.detectLoops().answer().frame())
+        except Exception as error:
+            raise self._query_error("detect loops", error) from error
+        loops: list[dict[str, Any]] = []
+        for row in rows:
+            traces = [_trace_summary(trace) for trace in (row.get("Traces") or [])]
+            nodes = list(
+                dict.fromkeys(hop["node"] for trace in traces for hop in trace["hops"])
+            )
+            loops.append({"flow": _text(row.get("Flow")), "nodes": nodes, "traces": traces})
+        return loops
 
     def _get_session(self) -> Any:
         if self._session is not None:
@@ -370,11 +407,17 @@ def _trace_summary(trace: Any) -> dict[str, Any]:
             action = str(getattr(step, "action", ""))
             detail = getattr(step, "detail", None)
             filter_name = getattr(detail, "filter", None)
+            interface = (
+                getattr(detail, "inputInterface", None)
+                or getattr(detail, "outputInterface", None)
+                or getattr(detail, "interface", None)
+            )
             steps.append(
                 {
                     "action": action,
                     "type": type(detail).__name__ if detail is not None else None,
                     "filter": str(filter_name) if filter_name else None,
+                    "interface": str(interface) if interface else None,
                 }
             )
             if action == "DENIED" and filter_name and dropped_by is None:

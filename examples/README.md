@@ -93,3 +93,30 @@ Linux host with Containerlab installed; it reads only the local topology file.
 and uses only the standard library. It constructs nested models, rejects unknown
 fields and incorrect JSON types, and applies the existing address/ACL/link
 validation. Invalid input exits the CLI with status 2; write errors use status 1.
+
+## Intent Library examples
+
+- [thapathali_complex.json](thapathali_complex.json) is the two-router campus core
+  used by the intents. Its router interfaces carry descriptions (`Student Lab`,
+  `Faculty LAN`, `Exam Servers`, `EMIS Services`), which auto-discovery turns
+  into groups such as `student_lab`.
+- [thapathali_groups.json](thapathali_groups.json) is a curated endpoint-group
+  registry: `students`, `exam_db`, `emis_portal`, and `faculty`. Its `aliases`
+  map the auto-discovered names onto those groups: `student_lab` → `students`,
+  `exam_db_server` → `exam_db`, `faculty_lan` → `faculty`.
+- [thapathali_intents.json](thapathali_intents.json) contains four intents. They
+  use the auto-discovered names, so they work with or without `--groups`:
+  - INT-001: `student_lab` is isolated from `exam_db_server`;
+  - INT-002: `student_lab` reaches `emis_portal` over HTTPS;
+  - INT-003: `faculty_lan` reaches `exam_db_server`;
+  - INT-004: the core is loop-free.
+
+  These match `SECURITY_POLICY_CORE` on `R1-Core-Admin`, so a correct snapshot
+  should report `V_q = 1.00`.
+
+```bash
+twin-builder compile examples/thapathali_complex.json -o dist
+twin-builder check-intents dist/batfish_snapshot examples/thapathali_intents.json
+twin-builder check-intents dist/batfish_snapshot examples/thapathali_intents.json \
+  --groups examples/thapathali_groups.json
+```
